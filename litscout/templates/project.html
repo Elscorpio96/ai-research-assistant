@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }}{% endblock %}
+{% block content %}
+{% include "_tabs.html" %}
+<div class="grid">
+  <section class="panel">
+    <h2>Search databases</h2>
+    <form method="post" action="/projects/{{ project.id }}/search" class="form" data-busy="Searching…">
+      <label>Search terms <input name="query" required minlength="2" maxlength="300" placeholder="e.g. machine learning SQL injection detection"></label>
+      <fieldset class="checks"><legend>Sources</legend>
+        {% for key, prov in providers.items() if key in settings.sources %}
+          <label class="check"><input type="checkbox" name="sources" value="{{ key }}" {{ 'checked' if key != 'demo' }}> {{ prov[0] }}</label>
+        {% endfor %}
+      </fieldset>
+      <div class="row3">
+        <label>From year <input name="year_from" inputmode="numeric" maxlength="4" placeholder="any"></label>
+        <label>To year <input name="year_to" inputmode="numeric" maxlength="4" placeholder="any"></label>
+        <label>Results per source <select name="limit"><option>10</option><option selected>25</option><option>50</option><option>100</option></select></label>
+      </div>
+      <button class="btn primary">Search</button>
+      <p class="hint">Duplicates across sources and earlier searches are removed automatically using DOI, then normalised title and year. No internet? Tick <i>Demo corpus</i> to try the workflow on fictional sample papers.</p>
+    </form>
+  </section>
+  <section>
+    <h2>Search log</h2>
+    {% if not searches %}<p class="muted">No searches yet.</p>{% endif %}
+    <ol class="log">
+    {% for s in searches %}
+      <li><b>{{ s.query }}</b>
+        <span class="muted">{{ s.sources.replace(',', ', ') }}{% if s.year_from or s.year_to %} · {{ s.year_from or '…' }}–{{ s.year_to or '…' }}{% endif %} · {{ s.created_at[:16] }}</span>
+        <span>{{ s.identified }} found · {{ s.added }} new · {{ s.duplicates }} duplicates</span>
+        {% for src, err in s.errors.items() %}<span class="err">{{ src }}: {{ err }}</span>{% endfor %}
+      </li>
+    {% endfor %}
+    </ol>
+    <details class="panel edit">
+      <summary>Edit question and criteria</summary>
+      <form method="post" action="/projects/{{ project.id }}/edit" class="form">
+        <label>Title <input name="title" value="{{ project.title }}" required maxlength="200"></label>
+        <label>Research question <textarea name="question" rows="3" required minlength="10">{{ project.question }}</textarea></label>
+        <label>Inclusion criteria <textarea name="inclusion" rows="2">{{ project.inclusion }}</textarea></label>
+        <label>Exclusion criteria <textarea name="exclusion" rows="2">{{ project.exclusion }}</textarea></label>
+        <button class="btn">Save</button>
+      </form>
+      <form method="post" action="/projects/{{ project.id }}/delete" data-confirm="Delete this project and all its papers?"><button class="btn danger">Delete project</button></form>
+    </details>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+<div class="proj-head">
+  <div>
+    <a class="crumb" href="/">← All projects</a>
+    <h1>{{ project.title }}</h1>
+    <p class="question">{{ project.question }}</p>
+  </div>
+  <dl class="prisma-mini">
+    <div><dt>Identified</dt><dd>{{ prisma.identified }}</dd></div>
+    <div><dt>To screen</dt><dd>{{ prisma.pending }}</dd></div>
+    <div><dt>Included</dt><dd class="ok">{{ prisma.included }}</dd></div>
+    <div><dt>Excluded</dt><dd>{{ prisma.excluded }}</dd></div>
+  </dl>
+</div>
+<nav class="tabs">
+  <a href="/projects/{{ project.id }}" class="{{ 'on' if tab == 'search' }}"><b>1</b> Search</a>
+  <a href="/projects/{{ project.id }}/screen?status=pending" class="{{ 'on' if tab == 'screen' }}"><b>2</b> Screen{% if prisma.pending %} <span class="count">{{ prisma.pending }}</span>{% endif %}</a>
+  <a href="/projects/{{ project.id }}/review" class="{{ 'on' if tab == 'review' }}"><b>3</b> Review</a>
+</nav>

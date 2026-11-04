@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Screen · {{ project.title }}{% endblock %}
+{% block content %}
+{% include "_tabs.html" %}
+{% if project.inclusion or project.exclusion %}
+<div class="criteria"><div><b>Include:</b> {{ project.inclusion or '—' }}</div><div><b>Exclude:</b> {{ project.exclusion or '—' }}</div></div>
+{% endif %}
+<form class="filters" method="get">
+  <div class="seg">
+    {% for s, label in [('pending', 'To screen'), ('included', 'Included'), ('excluded', 'Excluded'), ('all', 'All')] %}
+      <a class="{{ 'on' if status == s }}" href="?status={{ s }}&sort={{ sort }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <input type="hidden" name="status" value="{{ status }}">
+  <input name="q" value="{{ q }}" placeholder="Filter by word or author" aria-label="Filter">
+  <select name="sort" aria-label="Sort" data-autosubmit>
+    {% for v, l in [('relevance', 'Most relevant'), ('year', 'Newest'), ('citations', 'Most cited'), ('title', 'Title A–Z')] %}<option value="{{ v }}" {{ 'selected' if sort == v }}>{{ l }}</option>{% endfor %}
+  </select>
+  <button class="btn">Apply</button>
+</form>
+{% if not papers %}<p class="empty">{% if status == 'pending' %}Nothing left to screen. {% if prisma.included >= 2 %}<a href="/projects/{{ project.id }}/review">Draft the review →</a>{% else %}<a href="/projects/{{ project.id }}">Run another search →</a>{% endif %}{% else %}No papers here.{% endif %}</p>{% endif %}
+<ol class="papers">
+{% for p in papers %}
+  <li class="paper {{ p.status }}" id="p{{ p.id }}">
+    <div class="paper-main">
+      <div class="meta">
+        <meter min="0" max="1" low="0.25" high="0.6" optimum="1" value="{{ p.relevance }}" title="Relevance {{ (p.relevance * 100)|round|int }}%"></meter>
+        <span>{{ p.year or 'n.d.' }}</span>
+        <span class="src src-{{ p.source }}">{{ p.source }}</span>
+        {% if p.citations is not none %}<span>{{ p.citations }} citations</span>{% endif %}
+        {% if p.status != 'pending' %}<span class="badge {{ p.status }}">{{ p.status }}{% if p.reason %}: {{ p.reason }}{% endif %}</span>{% endif %}
+      </div>
+      <h3>{% if p.url %}<a href="{{ p.url }}" target="_blank" rel="noopener noreferrer">{{ p.title }}</a>{% else %}{{ p.title }}{% endif %}</h3>
+      <p class="authors">{{ p.authors[:6]|join(', ') }}{% if p.authors|length > 6 %} et al.{% endif %}{% if p.venue %} · <i>{{ p.venue }}</i>{% endif %}</p>
+      {% if p.abstract %}<details class="abstract" {{ 'open' if loop.index <= 3 and status == 'pending' }}><summary>Abstract</summary><p>{{ p.abstract }}</p></details>{% else %}<p class="muted small">No abstract available from this source.</p>{% endif %}
+    </div>
+    <div class="decide">
+      {% set next = '/projects/' ~ project.id ~ '/screen?status=' ~ status ~ '&sort=' ~ sort ~ '&q=' ~ q|urlencode %}
+      {% if p.status != 'included' %}
+      <form method="post" action="/projects/{{ project.id }}/papers/{{ p.id }}/screen"><input type="hidden" name="status" value="included"><input type="hidden" name="next" value="{{ next }}"><button class="btn ok">Include</button></form>
+      {% endif %}
+      {% if p.status != 'excluded' %}
+      <form method="post" action="/projects/{{ project.id }}/papers/{{ p.id }}/screen" class="exclude">
+        <input type="hidden" name="status" value="excluded"><input type="hidden" name="next" value="{{ next }}">
+        <select name="reason" required aria-label="Exclusion reason"><option value="">Reason…</option>{% for r in reasons %}<option>{{ r }}</option>{% endfor %}</select>
+        <button class="btn">Exclude</button>
+      </form>
+      {% endif %}
+      {% if p.status != 'pending' %}
+      <form method="post" action="/projects/{{ project.id }}/papers/{{ p.id }}/screen"><input type="hidden" name="status" value="pending"><input type="hidden" name="next" value="{{ next }}"><button class="linkish">Undo</button></form>
+      {% endif %}
+    </div>
+  </li>
+{% endfor %}
+</ol>
+<p class="exports">Export: <a href="/projects/{{ project.id }}/export/screening.csv">screening log (CSV)</a></p>
+{% endblock %}

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Review · {{ project.title }}{% endblock %}
+{% block content %}
+{% include "_tabs.html" %}
+<div class="review-grid">
+  <aside>
+    <section class="panel">
+      <h2>Generate draft</h2>
+      {% if prisma.included < 2 %}
+        <p class="muted">Include at least two papers on the <a href="/projects/{{ project.id }}/screen">Screen</a> tab first.</p>
+      {% else %}
+      <form method="post" action="/projects/{{ project.id }}/review" class="form" data-busy="Drafting…">
+        <label class="check"><input type="radio" name="method" value="extractive" checked> <span><b>Offline extractive</b><br><span class="small muted">Themes by clustering; sentences quoted from abstracts. No API key, fully reproducible.</span></span></label>
+        <label class="check {{ '' if llm else 'disabled' }}"><input type="radio" name="method" value="llm" {{ '' if llm else 'disabled' }}> <span><b>LLM synthesis</b><br><span class="small muted">{% if llm %}Abstractive draft; citations to non-existent sources are removed and flagged.{% else %}Set <code>LITSCOUT_LLM_PROVIDER</code> and <code>LITSCOUT_LLM_API_KEY</code> to enable.{% endif %}</span></span></label>
+        <button class="btn primary">Draft review from {{ prisma.included }} papers</button>
+      </form>
+      {% endif %}
+    </section>
+    <section class="panel">
+      <h2>PRISMA flow</h2>
+      <div class="flow">
+        <div class="box">Records identified<b>{{ prisma.identified }}</b></div>
+        <div class="arrow">↓ <span>{{ prisma.duplicates }} duplicates removed</span></div>
+        <div class="box">Records screened<b>{{ prisma.screened }}</b></div>
+        <div class="arrow">↓ <span>{{ prisma.excluded }} excluded{% if prisma.pending %}, {{ prisma.pending }} not yet screened{% endif %}</span></div>
+        <div class="box final">Studies included<b>{{ prisma.included }}</b></div>
+      </div>
+      {% if prisma.reasons %}<ul class="reasons">{% for r in prisma.reasons %}<li>{{ r.reason }} <b>{{ r.n }}</b></li>{% endfor %}</ul>{% endif %}
+    </section>
+    {% if review %}
+    <section class="panel">
+      <h2>Export</h2>
+      <ul class="plain">
+        <li><a href="/projects/{{ project.id }}/export/review.md">Review — Markdown, APA</a></li>
+        <li><a href="/projects/{{ project.id }}/export/review.md?style=ieee">Review — Markdown, IEEE</a></li>
+        <li><a href="/projects/{{ project.id }}/export/references.bib">References — BibTeX</a></li>
+        <li><a href="/projects/{{ project.id }}/export/screening.csv">Screening log — CSV</a></li>
+      </ul>
+    </section>
+    {% endif %}
+  </aside>
+  <article class="doc">
+    {% if not review %}
+      <div class="empty">No draft yet. Screen your papers, then generate a draft.</div>
+    {% else %}
+      {% set c = review.content %}
+      <header>
+        <p class="kicker">Literature review draft · {{ 'LLM (' ~ c.model ~ ')' if c.method == 'llm' else 'offline extractive' }} · {{ c.generated_at }}</p>
+        <h1>{{ project.title }}</h1>
+        <p class="question">{{ c.question }}</p>
+      </header>
+      {% for w in c.warnings %}<div class="warn">{{ w }}</div>{% endfor %}
+      {% for s in c.sections %}
+        <h2>{{ s.heading }}</h2>
+        {% for para in s.paragraphs %}<p>{{ para|cite_links }}</p>{% endfor %}
+      {% endfor %}
+      <h2>Summary of included studies</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>#</th><th>Study</th><th>Key finding (quoted from abstract)</th></tr></thead>
+        <tbody>{% for r in c.table %}<tr><td><a href="#ref{{ r.n }}">{{ r.n }}</a></td><td class="nowrap">{{ r.cite }}</td><td>{{ r.finding }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      <h2>References</h2>
+      <ol class="refs">{% for r in c.references %}<li id="ref{{ r.n }}" value="{{ r.n }}" class="{{ 'demo' if r.demo }}">{{ r.apa|italics }}</li>{% endfor %}</ol>
+    {% endif %}
+  </article>
+</div>
+{% endblock %}
