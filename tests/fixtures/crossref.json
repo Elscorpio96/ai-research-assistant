@@ -1,0 +1,24 @@
+{
+  "status": "ok",
+  "message": {
+    "items": [
+      {
+        "DOI": "10.1234/example.001",
+        "title": ["Sample Work on  Injection Detection"],
+        "author": [{"given": "Ada", "family": "Example"}, {"given": "Bola", "family": "Sample"}],
+        "issued": {"date-parts": [[2023, 5, 1]]},
+        "container-title": ["Sample Journal"],
+        "abstract": "<jats:p>We detect attacks quickly. <jats:italic>Few</jats:italic> missed attacks remain.</jats:p>",
+        "URL": "https://doi.org/10.1234/example.001",
+        "is-referenced-by-count": 12
+      },
+      {
+        "DOI": "10.1234/example.777",
+        "title": ["Crossref-Only Sample"],
+        "author": [{"family": "Solo"}],
+        "issued": {"date-parts": [[null]]},
+        "URL": "https://doi.org/10.1234/example.777"
+      }
+    ]
+  }
+}

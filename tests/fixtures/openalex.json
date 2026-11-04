@@ -1,0 +1,25 @@
+{
+  "meta": {"count": 2},
+  "results": [
+    {
+      "id": "https://openalex.org/W100",
+      "doi": "https://doi.org/10.1234/EXAMPLE.001",
+      "title": "Sample Work on Injection Detection",
+      "publication_year": 2023,
+      "cited_by_count": 12,
+      "authorships": [{"author": {"display_name": "Ada Example"}}, {"author": {"display_name": "Bola Sample"}}],
+      "primary_location": {"source": {"display_name": "Sample Journal"}},
+      "abstract_inverted_index": {"We": [0], "detect": [1], "attacks": [2, 6], "quickly.": [3], "Few": [4], "missed": [5], "remain.": [7]}
+    },
+    {
+      "id": "https://openalex.org/W101",
+      "doi": null,
+      "title": "A Second Sample Without DOI",
+      "publication_year": 2020,
+      "cited_by_count": 0,
+      "authorships": [],
+      "primary_location": null,
+      "abstract_inverted_index": null
+    }
+  ]
+}

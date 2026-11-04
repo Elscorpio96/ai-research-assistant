@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <title>arXiv Query</title>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00001v1</id>
+    <published>2024-01-02T00:00:00Z</published>
+    <title>Preprint Sample on
+      Detector Robustness</title>
+    <summary>  We study robustness of detectors. Results show fragility.  </summary>
+    <author><name>Chen Placeholder</name></author>
+    <author><name>Dana Placeholder</name></author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1801.00002v2</id>
+    <published>2018-03-04T00:00:00Z</published>
+    <title>Older Preprint Sample</title>
+    <summary>An older sample abstract with enough words.</summary>
+    <author><name>Eve Placeholder</name></author>
+    <arxiv:doi>10.9999/older.sample</arxiv:doi>
+    <arxiv:journal_ref>Sample Proceedings 2018</arxiv:journal_ref>
+  </entry>
+</feed>
