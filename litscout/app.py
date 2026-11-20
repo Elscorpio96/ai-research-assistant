@@ -19,9 +19,10 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 from pydantic import BaseModel, Field
 
-from . import __version__, citations, synthesis
+from . import __version__, citations, pipeline, synthesis
 from .config import Settings, get_settings
 from .db import Store
+from .embeddings import make_embedder
 from .llm import LLMError, make_completer
 from .sources import PROVIDERS, run_search
 
@@ -60,9 +61,11 @@ EXCLUSION_REASONS = [
 ]
 
 
-def create_app(settings: Settings | None = None, store: Store | None = None, http_client=None, llm_client=None) -> FastAPI:
+def create_app(settings: Settings | None = None, store: Store | None = None, http_client=None, llm_client=None, embedder=None) -> FastAPI:
     settings = settings or get_settings()
     store = store or Store(settings.db_path)
+    if embedder is not None or store.embedder is None:
+        store.embedder = embedder or make_embedder(settings)
     secret = (settings.secret_key or secrets.token_hex(32)).encode()
     app = FastAPI(title="LitScout API", version=__version__, docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -290,13 +293,20 @@ def create_app(settings: Settings | None = None, store: Store | None = None, htt
     def make_review(project: dict, method: str) -> dict:
         papers = store.papers(project["id"], "included")
         try:
-            if method == "llm":
-                if not settings.llm_enabled:
-                    raise HTTPException(400, "No LLM is configured. Set LITSCOUT_LLM_PROVIDER and LITSCOUT_LLM_API_KEY.")
-                review = synthesis.llm_review(project, papers, make_completer(settings, llm_client))
-            else:
-                used = sorted({PROVIDERS[s][0] for x in store.searches(project["id"]) for s in x["sources"].split(",") if s in PROVIDERS})
-                review = synthesis.extractive_review(project, papers, store.prisma(project["id"]), used)
+            if method == "llm" and not settings.llm_enabled:
+                raise HTTPException(400, "No LLM is configured. Set LITSCOUT_LLM_PROVIDER and LITSCOUT_LLM_API_KEY.")
+            used = sorted({PROVIDERS[s][0] for x in store.searches(project["id"]) for s in x["sources"].split(",") if s in PROVIDERS})
+            review = pipeline.run_review(
+                project,
+                papers,
+                "llm" if method == "llm" else "extractive",
+                complete=make_completer(settings, llm_client) if method == "llm" else None,
+                retriever=lambda q, k: store.hybrid_search(project["id"], q, k, status="included"),
+                prisma=store.prisma(project["id"]),
+                sources_used=used,
+                max_sources=settings.review_max_sources,
+                max_attempts=settings.review_max_attempts,
+            )
         except (ValueError, LLMError) as e:
             raise HTTPException(400, str(e)) from None
         store.save_review(project["id"], review["method"], review["model"], review)
@@ -357,6 +367,16 @@ def create_app(settings: Settings | None = None, store: Store | None = None, htt
     @app.get("/api/projects/{pid}/papers", tags=["screening"])
     def api_papers(project: Project, status: str | None = None, q: str = "", sort: str = "relevance"):
         return store.papers(project["id"], status, q, sort)
+
+    @app.get("/api/projects/{pid}/retrieve", tags=["search"])
+    def api_retrieve(project: Project, q: str, k: int = 10, status: str | None = None):
+        """Hybrid retrieval over the project's papers: BM25, plus vector similarity fused with RRF when embeddings are on."""
+        if status not in (None, "pending", "included", "excluded"):
+            raise HTTPException(400, "status must be pending, included or excluded")
+        return {
+            "mode": "hybrid" if store.embedder else "bm25",
+            "results": store.hybrid_search(project["id"], q, max(1, min(k, 100)), status),
+        }
 
     @app.patch("/api/projects/{pid}/papers/{paper_id}", tags=["screening"])
     def api_screen(project: Project, paper_id: int, body: ScreenIn):

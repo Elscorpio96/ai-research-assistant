@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from .embeddings import Embedder, EmbeddingError, dot, normalise, pack, paper_text, rrf, unpack
 from .models import Paper
 from .text import BM25
+
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -57,12 +61,21 @@ CREATE TABLE IF NOT EXISTS reviews (
   content TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- Vector store: one normalised embedding per paper per model (float32 blob)
+CREATE TABLE IF NOT EXISTS embeddings (
+  paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  dim INTEGER NOT NULL,
+  vector BLOB NOT NULL,
+  PRIMARY KEY (paper_id, model)
+);
 CREATE INDEX IF NOT EXISTS idx_papers_project ON papers(project_id, status);
 """
 
 
 class Store:
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, embedder: Embedder | None = None) -> None:
+        self.embedder = embedder
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
@@ -157,7 +170,10 @@ class Store:
         return counts
 
     def rerank(self, pid: int) -> None:
-        """Score every paper in the project against the research question and all search queries (BM25)."""
+        """Score every paper against the research question and all search queries.
+
+        BM25 only, or hybrid BM25 + vector similarity fused with RRF when an embedder is configured.
+        """
         proj = self.project(pid)
         if not proj:
             return
@@ -165,12 +181,64 @@ class Store:
         rows = self.conn.execute("SELECT id, title, abstract FROM papers WHERE project_id = ?", (pid,)).fetchall()
         if not rows:
             return
-        scores = BM25([f"{r['title']} {r['title']} {r['abstract']}" for r in rows]).scores(f"{proj['question']} {queries}")
+        scores = self._score([dict(r) for r in rows], f"{proj['question']} {queries}")
         top = max(scores) or 1.0
         with self.tx() as c:
             c.executemany(
                 "UPDATE papers SET relevance = ? WHERE id = ?", [(round(s / top, 4), r["id"]) for s, r in zip(scores, rows, strict=True)]
             )
+
+    def hybrid_search(self, pid: int, query: str, k: int = 10, status: str | None = None) -> list[dict]:
+        """Top-k papers in a project for a free-text query, with BM25, vector and fused scores."""
+        papers = self.papers(pid, status)
+        if not papers or not query.strip():
+            return []
+        bm25 = BM25([f"{p['title']} {p['title']} {p['abstract']}" for p in papers]).scores(query)
+        vec = self._vector_scores(papers, query)
+        fused = rrf(bm25, vec) if vec else bm25
+        ranked = sorted(zip(papers, bm25, vec or [None] * len(papers), fused, strict=True), key=lambda t: -t[3])[:k]
+        return [{**p, "score": round(f, 6), "bm25": round(b, 4), "similarity": None if v is None else round(v, 4)} for p, b, v, f in ranked]
+
+    def _score(self, papers: list[dict], query: str) -> list[float]:
+        bm25 = BM25([f"{p['title']} {p['title']} {p['abstract']}" for p in papers]).scores(query)
+        vec = self._vector_scores(papers, query)
+        return rrf(bm25, vec) if vec else bm25
+
+    def _vector_scores(self, papers: list[dict], query: str) -> list[float] | None:
+        """Cosine similarity of each paper to the query, or None if no embedder (or the embedding API fails)."""
+        if not self.embedder:
+            return None
+        try:
+            vectors = self.ensure_embeddings(papers)
+            q = normalise(self.embedder.embed([query])[0])
+        except EmbeddingError as e:
+            log.warning("Vector ranking skipped, falling back to BM25: %s", e)
+            return None
+        return [dot(vectors[p["id"]], q) for p in papers]
+
+    def ensure_embeddings(self, papers: list[dict]) -> dict[int, list[float]]:
+        """Return {paper_id: unit vector}, embedding (and caching) only papers not yet embedded with this model."""
+        assert self.embedder is not None
+        model = self.embedder.name
+        ids = [p["id"] for p in papers]
+        have: dict[int, list[float]] = {}
+        for i in range(0, len(ids), 500):
+            chunk = ids[i : i + 500]
+            marks = ",".join("?" * len(chunk))
+            for r in self.conn.execute(
+                f"SELECT paper_id, vector FROM embeddings WHERE model = ? AND paper_id IN ({marks})", [model, *chunk]
+            ):
+                have[r["paper_id"]] = unpack(r["vector"])
+        missing = [p for p in papers if p["id"] not in have]
+        if missing:
+            vecs = [normalise(v) for v in self.embedder.embed([paper_text(p["title"], p["abstract"]) for p in missing])]
+            with self.tx() as c:
+                c.executemany(
+                    "INSERT OR REPLACE INTO embeddings (paper_id, model, dim, vector) VALUES (?, ?, ?, ?)",
+                    [(p["id"], model, len(v), pack(v)) for p, v in zip(missing, vecs, strict=True)],
+                )
+            have.update({p["id"]: v for p, v in zip(missing, vecs, strict=True)})
+        return have
 
     def papers(self, pid: int, status: str | None = None, q: str = "", sort: str = "relevance") -> list[dict]:
         order = {
