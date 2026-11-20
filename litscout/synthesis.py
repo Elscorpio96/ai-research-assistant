@@ -83,6 +83,8 @@ def surface_forms(texts: list[str]) -> dict[str, str]:
 
 
 def join_words(words: list[str]) -> str:
+    if not words:
+        return ""
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
 
 
@@ -132,7 +134,7 @@ def extractive_review(project: dict, papers: list[dict], prisma: dict, sources_u
         words = [forms.get(t, t) for t in terms]
         themes.append(
             {
-                "label": f"Theme {j + 1}: {', '.join(words[:3])}",
+                "label": f"Theme {j + 1}: {', '.join(words[:3])}" if words else f"Theme {j + 1}",
                 "terms": [forms.get(t, t) for t in terms],
                 "papers": [p["n"] for p in members],
                 "_vec": _centroid(mvecs),
@@ -158,9 +160,8 @@ def extractive_review(project: dict, papers: list[dict], prisma: dict, sources_u
     by_n = {p["n"]: p for p in ps}
     for t in themes:
         members = sorted((by_n[n] for n in t["papers"]), key=lambda p: (p.get("year") or 0, p["n"]))
-        opening = (
-            f"This theme groups {len(members)} {'study' if len(members) == 1 else 'studies'} {cite_list(t['papers'])} "
-            f"sharing the key terms {join_words(t['terms'][:4])}."
+        opening = f"This theme groups {len(members)} {'study' if len(members) == 1 else 'studies'} {cite_list(t['papers'])}" + (
+            f" sharing the key terms {join_words(t['terms'][:4])}." if t["terms"] else "."
         )
         body = []
         for p in members:
@@ -352,12 +353,18 @@ def parse_llm_json(raw: str) -> dict:
     return data
 
 
-def llm_review(project: dict, papers: list[dict], complete) -> dict:
-    """`complete(system, prompt) -> (text, model_name)` is injected so it can be mocked in tests."""
+def llm_review(project: dict, papers: list[dict], complete, feedback: str = "") -> dict:
+    """`complete(system, prompt) -> (text, model_name)` is injected so it can be mocked in tests.
+
+    `feedback` is appended to the prompt when the review pipeline asks the model to redraft after failed citation checks.
+    """
     if len(papers) < 2:
         raise ValueError("Include at least two papers before drafting a review.")
     ps = numbered(papers)
-    raw, model = complete(SYSTEM, build_prompt(project, ps))
+    prompt = build_prompt(project, ps)
+    if feedback:
+        prompt += f"\n\nYour previous draft failed these checks; fix them in this draft:\n{feedback}"
+    raw, model = complete(SYSTEM, prompt)
     data = parse_llm_json(raw)
     valid = {p["n"] for p in ps}
     removed: list[int] = []
@@ -382,7 +389,9 @@ def llm_review(project: dict, papers: list[dict], complete) -> dict:
         warnings.append(f"The model cited sources that do not exist ({cite_list(sorted(set(removed)))}); these citations were removed.")
     if uncited:
         warnings.append(f"{uncited} paragraph(s) contain no citation. Treat them as unsupported until checked.")
-    return _package(project, ps, sections, themes, "llm", model, warnings)
+    review = _package(project, ps, sections, themes, "llm", model, warnings)
+    review["checks"] = {"invented_citations": sorted(set(removed)), "uncited_paragraphs": uncited}
+    return review
 
 
 # ------------------------------------------------------------------ export

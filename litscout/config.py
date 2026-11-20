@@ -27,6 +27,16 @@ class Settings(BaseSettings):
     # For OpenAI-compatible servers (OpenAI, Ollama, LM Studio, vLLM...)
     llm_base_url: str = "https://api.openai.com/v1"
 
+    # Optional embeddings for hybrid (BM25 + vector) retrieval. Any OpenAI-compatible /embeddings endpoint.
+    embed_provider: Literal["none", "openai"] = "none"
+    embed_model: str = "text-embedding-3-small"
+    embed_base_url: str = "https://api.openai.com/v1"
+    embed_api_key: str = ""  # falls back to LITSCOUT_LLM_API_KEY when the LLM provider is "openai"
+
+    # Review pipeline (LangGraph): most sources sent to the drafter, and LLM redraft attempts when citations fail checks
+    review_max_sources: int = 40
+    review_max_attempts: int = 2
+
     @property
     def llm_enabled(self) -> bool:
         return self.llm_provider != "none" and (bool(self.llm_api_key) or self.llm_provider == "openai")
